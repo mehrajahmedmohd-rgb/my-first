@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mehraj — Disaster Safe Locations</title>
+
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-sA+e2e6kQm3XvZT6w3mC3v5w5q2sVvQwq6f0JfZ8aQo=" crossorigin=""/>
+
+  <style>
+    :root{--accent:#0b74de;--muted:#6b7280}
+    body{font-family:Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; margin:0; color:#0f172a}
+    header{background:linear-gradient(90deg, rgba(11,116,222,0.12), rgba(11,116,222,0.04)); padding:18px 20px; display:flex;align-items:center;gap:12px}
+    .brand{font-weight:700;font-size:1.05rem}
+    main{display:grid;grid-template-columns:1fr 420px;gap:16px;padding:18px;min-height:80vh}
+    @media (max-width:900px){main{grid-template-columns:1fr;}
+      #sidebar{order:2}
+    }
+
+    /* Map */
+    #map{height:70vh;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+
+    /* Sidebar */
+    #sidebar{background:#fff;padding:14px;border-radius:10px;box-shadow:0 6px 18px rgba(2,6,23,0.04);height:70vh;overflow:auto}
+    .section{margin-bottom:14px}
+    .muted{color:var(--muted);font-size:0.9rem}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    .btn{background:var(--accent);color:white;padding:8px 10px;border-radius:8px;border:none;cursor:pointer}
+    .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(11,116,222,0.12)}
+    input[type=text]{padding:8px;border-radius:8px;border:1px solid #e6e9ef;flex:1}
+
+    ul.location-list{list-style:none;padding:0;margin:0}
+    li.location{padding:10px;border-radius:8px;border:1px solid #f1f5f9;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+    .loc-meta{font-size:0.95rem}
+    .small{font-size:0.85rem;color:var(--muted)}
+
+    footer{padding:12px 18px;font-size:0.9rem;color:var(--muted)}
+
+    /* small helper */
+    .hint{font-size:0.86rem;color:#334155}
+  </style>
+</head>
+<body>
+  <header>
+    <img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='36' height='36' viewBox='0 0 24 24'><circle cx='12' cy='12' r='10' fill='%230b74de'/><path d='M7 12l3 3 7-7' stroke='%23fff' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>" alt="logo" style="width:36px;height:36px;border-radius:8px;"/>
+    <div>
+      <div class="brand">Mehraj — Disaster Safe Locations</div>
+      <div class="muted">Locate shelters, mark safe spots, and share community resources</div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div id="map"></div>
+
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button id="locateBtn" class="btn">Use my location</button>
+        <button id="addMarkerBtn" class="btn ghost">Add safe location</button>
+        <input id="searchInput" type="text" placeholder="Search locations by name or tag" style="min-width:220px" />
+        <button id="clearBtn" class="btn ghost">Clear all (local)</button>
+      </div>
+
+      <div style="margin-top:10px;font-size:0.9rem;color:#334155">Tip: Click <strong>Add safe location</strong>, then click the map to drop a marker. Markers persist in your browser (localStorage).</div>
+    </section>
+
+    <aside id="sidebar">
+      <div class="section">
+        <h3 style="margin:0 0 6px 0">Saved locations</h3>
+        <div class="muted small">Points marked as shelters, relief centers, or safe meeting spots</div>
+      </div>
+
+      <div class="section">
+        <input id="nameInput" type="text" placeholder="Name (e.g. Community Hall)" />
+        <div style="height:8px"></div>
+        <input id="descInput" type="text" placeholder="Short description / tag (e.g. Food, Medical)" />
+      </div>
+
+      <div class="section">
+        <ul id="locations" class="location-list"></ul>
+      </div>
+
+      <div class="section">
+        <h4 style="margin:0 0 6px 0">Share & Export</h4>
+        <div class="controls">
+          <button id="exportBtn" class="btn">Export JSON</button>
+          <button id="importBtn" class="btn ghost">Import JSON</button>
+          <input id="importFile" type="file" accept="application/json" style="display:none" />
+        </div>
+        <div style="height:8px"></div>
+        <div class="hint">You can export marked locations and share them with volunteers or upload to a community server.</div>
+      </div>
+
+    </aside>
+  </main>
+
+  <footer>Built with Leaflet · Starter site by Mehraj · Data stored locally in your browser</footer>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j8kY4y0v3cO2M2w0k4aH2a2aYfGkG6kG8rQj0sM=" crossorigin=""></script>
+  <script>
+    // Starter data: example safe locations (lat, lng)
+    const sampleLocations = [
+      {id:cryptoRandomId(), name:'Community Center', desc:'Food & shelter', lat:28.6139, lng:77.2090},
+      {id:cryptoRandomId(), name:'School Ground', desc:'Assembly point', lat:28.6100, lng:77.2000}
+    ];
+
+    function cryptoRandomId(){
+      return 'id-' + Math.random().toString(36).slice(2,9);
+    }
+
+    // Persistence key
+    const STORAGE_KEY = 'mehraj_safe_locations_v1';
+
+    // Map setup
+    const map = L.map('map').setView([20.5937,78.9629], 5); // India-centered default
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
+    }).addTo(map);
+
+    // State
+    let markers = {}; // id -> marker
+    let locations = loadLocations();
+
+    // Render persisted or sample
+    if(locations.length === 0){
+      locations = sampleLocations;
+      saveLocations();
+    }
+
+    locations.forEach(addLocationToMap);
+
+    // --- UI elements ---
+    const addMarkerBtn = document.getElementById('addMarkerBtn');
+    const locateBtn = document.getElementById('locateBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const importBtn = document.getElementById('importBtn');
+    const importFile = document.getElementById('importFile');
+    const locationsList = document.getElementById('locations');
+    const nameInput = document.getElementById('nameInput');
+    const descInput = document.getElementById('descInput');
+    const searchInput = document.getElementById('searchInput');
+
+    let addingMode = false;
+
+    addMarkerBtn.addEventListener('click', ()=>{
+      addingMode = !addingMode;
+      addMarkerBtn.textContent = addingMode ? 'Click map to place marker (Cancel)' : 'Add safe location';
+    });
+
+    map.on('click', function(e){
+      if(!addingMode) return;
+      const name = nameInput.value.trim() || prompt('Name for this location (e.g. Relief Camp)') || 'Unnamed';
+      const desc = descInput.value.trim() || prompt('Short tag or description (e.g. Food, Medical)') || '';
+      const loc = {id:cryptoRandomId(), name, desc, lat:e.latlng.lat, lng:e.latlng.lng};
+      locations.push(loc);
+      addLocationToMap(loc);
+      saveLocations();
+      renderList();
+      addingMode = false;
+      addMarkerBtn.textContent = 'Add safe location';
+    });
+
+    locateBtn.addEventListener('click', ()=>{
+      map.locate({setView:true, maxZoom:16});
+    });
+
+    map.on('locationfound', function(e){
+      const radius = e.accuracy;
+      L.circle(e.latlng, {radius}).addTo(map);
+    });
+
+    clearBtn.addEventListener('click', ()=>{
+      if(!confirm('Clear all saved locations from your browser? This cannot be undone.')) return;
+      locations = [];
+      saveLocations();
+      Object.values(markers).forEach(m=>map.removeLayer(m));
+      markers = {};
+      renderList();
+    });
+
+    exportBtn.addEventListener('click', ()=>{
+      const data = JSON.stringify(locations, null, 2);
+      const blob = new Blob([data], {type: 'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'mehraj_safe_locations.json'; a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    importBtn.addEventListener('click', ()=>importFile.click());
+    importFile.addEventListener('change', async (e)=>{
+      const f = e.target.files[0];
+      if(!f) return;
+      try{
+        const txt = await f.text();
+        const parsed = JSON.parse(txt);
+        if(!Array.isArray(parsed)) throw new Error('Invalid file');
+        // merge by ids
+        const existingIds = new Set(locations.map(l=>l.id));
+        parsed.forEach(p=>{ if(!existingIds.has(p.id)) locations.push(p); });
+        saveLocations();
+        locations.forEach(l=>{ if(!markers[l.id]) addLocationToMap(l); });
+        renderList();
+        alert('Imported successfully');
+      }catch(err){alert('Import failed: ' + err.message)}
+      importFile.value='';
+    });
+
+    searchInput.addEventListener('input', ()=>renderList());
+
+    // Helpers
+    function addLocationToMap(loc){
+      const m = L.marker([loc.lat, loc.lng]).addTo(map)
+        .bindPopup(`<strong>${escapeHtml(loc.name)}</strong><div class='small'>${escapeHtml(loc.desc)}</div>`);
+      markers[loc.id] = m;
+      renderList();
+    }
+
+    function renderList(){
+      const q = (searchInput.value || '').toLowerCase();
+      locationsList.innerHTML='';
+      locations.forEach(loc=>{
+        if(q){
+          if(!(loc.name.toLowerCase().includes(q) || (loc.desc||'').toLowerCase().includes(q))) return;
+        }
+        const li = document.createElement('li');
+        li.className='location';
+        li.innerHTML = `<div>
+          <div class='loc-meta'><strong>${escapeHtml(loc.name)}</strong></div>
+          <div class='small'>${escapeHtml(loc.desc)} — (${loc.lat.toFixed(4)}, ${loc.lng.toFixed(4)})</div>
+        </div>
+        <div style='display:flex;gap:6px;align-items:center'>
+          <button class='btn ghost' data-action='zoom' data-id='${loc.id}'>Zoom</button>
+          <button class='btn' data-action='delete' data-id='${loc.id}'>Delete</button>
+        </div>`;
+        locationsList.appendChild(li);
+      });
+
+      // attach handlers
+      locationsList.querySelectorAll('button[data-action]').forEach(btn=>{
+        btn.addEventListener('click', (e)=>{
+          const id = btn.dataset.id;
+          const action = btn.dataset.action;
+          const loc = locations.find(l=>l.id===id);
+          if(!loc) return;
+          if(action==='zoom'){
+            map.setView([loc.lat, loc.lng], 17);
+            markers[id].openPopup();
+          }else if(action==='delete'){
+            if(!confirm('Delete this location?')) return;
+            // remove marker
+            map.removeLayer(markers[id]);
+            delete markers[id];
+            locations = locations.filter(l=>l.id !== id);
+            saveLocations();
+            renderList();
+          }
+        });
+      });
+    }
+
+    function saveLocations(){
+      try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(locations)); }catch(e){console.warn('save failed',e)}
+    }
+
+    function loadLocations(){
+      try{ const txt = localStorage.getItem(STORAGE_KEY); if(!txt) return []; return JSON.parse(txt); }catch(e){return []}
+    }
+
+    function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]; }); }
+
+    // initial render
+    renderList();
+
+    // --- end of script ---
+  </script>
+</body>
+</html>
